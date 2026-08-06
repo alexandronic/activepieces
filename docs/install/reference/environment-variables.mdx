@@ -239,3 +239,4 @@ flow-authoring defaults.
 | `AP_TRIGGER_DEFAULT_POLL_INTERVAL` | Minutes between checks for new data on pieces with scheduled triggers (e.g. new Google Contacts). | `5` |
 | `AP_ENABLE_FLOW_ON_PUBLISH` | Automatically enable a flow when a new version is published. | `true` |
 | `AP_LOAD_TRANSLATIONS_FOR_DEV_PIECES` | Load translations for dev pieces (configured via `AP_DEV_PIECES`). Affects development mode only. | `false` |
+| `AP_ENFORCE_CONNECTION_PIECE_BINDING` | Restrict every connection to the piece that created it, and block connection access entirely for pieces with no fixed destination (HTTP, GraphQL, Webhook, and self-hosted/DB-style pieces). Applies platform-wide and immediately to existing connections/flows — including making the "Read Connection" action non-functional. | `false` |

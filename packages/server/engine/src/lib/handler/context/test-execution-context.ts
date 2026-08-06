@@ -51,6 +51,7 @@ export const testExecutionContext = {
                         engineToken,
                         contextVersion: LATEST_CONTEXT_VERSION,
                         stepNames: engineConstants.stepNames,
+                        requestingPieceName: undefined,
                     }).resolve<{ items: unknown[] }>({
                         unresolvedInput: step.settings,
                         executionState: flowExecutionContext,

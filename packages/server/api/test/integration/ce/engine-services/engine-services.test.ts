@@ -1,7 +1,7 @@
 import { AddressInfo } from 'net'
 import { apId } from '@activepieces/core-utils'
 import { ContextVersion, StoreScope } from '@activepieces/pieces-framework'
-import { AppConnectionStatus, AppConnectionType, ConnectionExpiredError, ConnectionNotFoundError, FetchError, FlowStatus, FlowVersionState, PrincipalType } from '@activepieces/shared'
+import { AppConnectionStatus, AppConnectionType, ConnectionBlockedForGenericPieceError, ConnectionExpiredError, ConnectionNotFoundError, ConnectionPieceBindingMismatchError, ExecutionErrorType, FetchError, FlowStatus, FlowVersionState, PrincipalType } from '@activepieces/shared'
 import { FastifyInstance } from 'fastify'
 import { createConnectionResolver } from '../../../../../engine/src/lib/piece-context/connection-resolver'
 import { createFileUploader } from '../../../../../engine/src/lib/piece-context/file-uploader'
@@ -173,6 +173,7 @@ describe('Engine Services Integration', () => {
                 engineToken,
                 apiUrl,
                 contextVersion: ContextVersion.V1,
+                requestingPieceName: undefined,
             })
 
             const result = await connectionService.obtain(externalId)
@@ -209,6 +210,7 @@ describe('Engine Services Integration', () => {
                 engineToken,
                 apiUrl,
                 contextVersion: undefined,
+                requestingPieceName: undefined,
             })
 
             const result = await connectionService.obtain(externalId)
@@ -222,6 +224,7 @@ describe('Engine Services Integration', () => {
                 engineToken,
                 apiUrl,
                 contextVersion: ContextVersion.V1,
+                requestingPieceName: undefined,
             })
 
             await expect(connectionService.obtain('non-existent-id')).rejects.toThrow(ConnectionNotFoundError)
@@ -252,9 +255,143 @@ describe('Engine Services Integration', () => {
                 engineToken,
                 apiUrl,
                 contextVersion: ContextVersion.V1,
+                requestingPieceName: undefined,
             })
 
             await expect(connectionService.obtain(externalId)).rejects.toThrow(ConnectionExpiredError)
+        })
+    })
+
+    describe('connections.service — enforceConnectionPieceBinding (AP_ENFORCE_CONNECTION_PIECE_BINDING)', () => {
+        const ENV_VAR_NAME = 'AP_ENFORCE_CONNECTION_PIECE_BINDING'
+        let originalValue: string | undefined
+
+        beforeEach(() => {
+            originalValue = process.env[ENV_VAR_NAME]
+        })
+
+        afterEach(() => {
+            if (originalValue === undefined) {
+                delete process.env[ENV_VAR_NAME]
+            }
+            else {
+                process.env[ENV_VAR_NAME] = originalValue
+            }
+        })
+
+        const saveConnection = async (pieceName: string): Promise<string> => {
+            const externalId = apId()
+            const connectionValue = {
+                type: AppConnectionType.SECRET_TEXT,
+                secret_text: 'binding-test-secret',
+            }
+            const encryptedValue = await encryptUtils.encryptObject(connectionValue)
+            const mockConn = createMockConnection({
+                platformId,
+                projectIds: [projectId],
+                externalId,
+                pieceName,
+                status: AppConnectionStatus.ACTIVE,
+            }, ownerId)
+            await db.save('app_connection', {
+                ...mockConn,
+                value: encryptedValue,
+            })
+            return externalId
+        }
+
+        it('flag off (default): mismatched requestingPieceName still succeeds (unchanged behavior)', async () => {
+            delete process.env[ENV_VAR_NAME]
+            const externalId = await saveConnection('@activepieces/piece-slack')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: '@activepieces/piece-http',
+            })
+
+            const result = await connectionService.obtain(externalId)
+            expect(result).toEqual({ type: AppConnectionType.SECRET_TEXT, secret_text: 'binding-test-secret' })
+        })
+
+        it('flag on + matching requestingPieceName: succeeds', async () => {
+            process.env[ENV_VAR_NAME] = 'true'
+            const externalId = await saveConnection('@activepieces/piece-slack')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: '@activepieces/piece-slack',
+            })
+
+            const result = await connectionService.obtain(externalId)
+            expect(result).toEqual({ type: AppConnectionType.SECRET_TEXT, secret_text: 'binding-test-secret' })
+        })
+
+        it('flag on + mismatched requestingPieceName: throws ConnectionPieceBindingMismatchError as a USER error', async () => {
+            process.env[ENV_VAR_NAME] = 'true'
+            const externalId = await saveConnection('@activepieces/piece-slack')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: '@activepieces/piece-http',
+            })
+
+            const error = await connectionService.obtain(externalId).catch((caught: unknown) => caught)
+            expect(error).toBeInstanceOf(ConnectionPieceBindingMismatchError)
+            expect((error as ConnectionPieceBindingMismatchError).type).toBe(ExecutionErrorType.USER)
+        })
+
+        it('flag on + omitted requestingPieceName (Code/Loop/Router step): throws ConnectionPieceBindingMismatchError', async () => {
+            process.env[ENV_VAR_NAME] = 'true'
+            const externalId = await saveConnection('@activepieces/piece-slack')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: undefined,
+            })
+
+            await expect(connectionService.obtain(externalId)).rejects.toThrow(ConnectionPieceBindingMismatchError)
+        })
+
+        it('flag on + connection bound to a generic-destination piece, even with matching requestingPieceName: still blocked', async () => {
+            process.env[ENV_VAR_NAME] = 'true'
+            const externalId = await saveConnection('@activepieces/piece-http')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: '@activepieces/piece-http',
+            })
+
+            await expect(connectionService.obtain(externalId)).rejects.toThrow(ConnectionBlockedForGenericPieceError)
+        })
+
+        it('flag on + Read Connection piece requesting a connection bound to another piece: rejected, no exemption', async () => {
+            process.env[ENV_VAR_NAME] = 'true'
+            const externalId = await saveConnection('@activepieces/piece-slack')
+
+            const connectionService = createConnectionResolver({
+                projectId,
+                engineToken,
+                apiUrl,
+                contextVersion: ContextVersion.V1,
+                requestingPieceName: '@activepieces/piece-connections',
+            })
+
+            await expect(connectionService.obtain(externalId)).rejects.toThrow(ConnectionPieceBindingMismatchError)
         })
     })
 

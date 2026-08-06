@@ -157,13 +157,14 @@ export class EngineConstants {
             flowRunId: DEFAULT_TRIGGER_EXECUTION,
         })
     }
-    public getPropsResolver(contextVersion: ContextVersion | undefined): PropsResolver {
+    public getPropsResolver(contextVersion: ContextVersion | undefined, requestingPieceName?: string): PropsResolver {
         return createPropsResolver({
             projectId: this.projectId,
             engineToken: this.engineToken,
             apiUrl: this.internalApiUrl,
             contextVersion,
             stepNames: this.stepNames,
+            requestingPieceName,
         })
     }
     private async getProject(): Promise<Project> {

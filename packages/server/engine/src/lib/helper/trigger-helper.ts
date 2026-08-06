@@ -68,6 +68,7 @@ export const triggerHelper = {
                 engineToken: constants.engineToken,
                 target: 'triggers',
                 contextVersion: piece.getContextInfo?.().version,
+                requestingPieceName: pieceName,
             }),
         }
         await pieceTrigger.onStart(context)
@@ -157,6 +158,7 @@ export const triggerHelper = {
                 engineToken: constants.engineToken,
                 target: 'triggers',
                 contextVersion: piece.getContextInfo?.().version,
+                requestingPieceName: pieceName,
             }),
         }
         switch (params.hookType) {
@@ -269,6 +271,7 @@ async function prepareTriggerExecution({ pieceName, pieceVersion, triggerName, i
         engineToken,
         contextVersion: piece.getContextInfo?.().version,
         stepNames,
+        requestingPieceName: pieceName,
     }).resolve<StaticPropsValue<PiecePropertyMap>>({
         unresolvedInput: input,
         executionState: FlowExecutorContext.empty(),
